@@ -103,501 +103,444 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+
 @st.cache_data
 def load_data():
-    # Read the compressed CSV file
     with zipfile.ZipFile('deliveries.csv.zip') as z:
         with z.open('deliveries.csv') as file:
             df = pd.read_csv(file)
-    
-    team_mapping = {
-        'Delhi Daredevils': 'Delhi Capitals',
-        'Deccan Chargers': 'Sunrisers Hyderabad',
-        'Kings XI Punjab': 'Punjab Kings',
-        'Pune Warriors': 'Rising Pune Supergiant',
-        'Rising Pune Supergiants': 'Rising Pune Supergiant',
-        'Gujarat Lions': 'Gujarat Titans',
-        'Royal Challengers Bangalore': 'Royal Challengers Bengaluru'
-    }
-    
-    df['batting_team'] = df['batting_team'].replace(team_mapping)
-    df['bowling_team'] = df['bowling_team'].replace(team_mapping)
-    
     return df
 
-def calculate_player_stats(df, player_name, stat_type='batsman'):
-    if stat_type == 'batsman':
-        player_df = df[df['batter'] == player_name]
-        
-        stats = {
-            'Total Runs': player_df['batsman_runs'].sum(),
-            'Balls Faced': len(player_df),
-            'Strike Rate': (player_df['batsman_runs'].sum() / len(player_df)) * 100,
-            'Fours': len(player_df[player_df['batsman_runs'] == 4]),
-            'Sixes': len(player_df[player_df['batsman_runs'] == 6]),
-            'Dot Balls': len(player_df[player_df['batsman_runs'] == 0]),
-            'Average': player_df['batsman_runs'].sum() / max(1, sum(player_df['is_wicket'])),
-            'Highest Score': player_df.groupby(['match_id'])['batsman_runs'].sum().max(),
-            'Teams Played For': player_df['batting_team'].unique().tolist(),
-            'Powerplay Runs': player_df[player_df['over'] <= 6]['batsman_runs'].sum(),
-            'Death Overs Runs': player_df[player_df['over'] >= 16]['batsman_runs'].sum()
-        }
-        
-        # Phase-wise performance
-        phase_runs = {
-            'Powerplay (1-6)': player_df[player_df['over'] <= 6]['batsman_runs'].sum(),
-            'Middle (7-15)': player_df[(player_df['over'] > 6) & (player_df['over'] <= 15)]['batsman_runs'].sum(),
-            'Death (16-20)': player_df[player_df['over'] >= 16]['batsman_runs'].sum()
-        }
-        
-        # Team-wise performance
-        team_wise = player_df.groupby('bowling_team')['batsman_runs'].agg([
-            'sum', 'count', 
-            lambda x: len(x[x == 4]),  # fours
-            lambda x: len(x[x == 6])   # sixes
-        ]).reset_index()
-        team_wise.columns = ['Team', 'Runs', 'Balls', 'Fours', 'Sixes']
-        team_wise['Strike Rate'] = (team_wise['Runs'] / team_wise['Balls']) * 100
-        
-        return stats, phase_runs, team_wise
+def calculate_matchup_stats(df, batsman, bowler):
+    """Calculate detailed head-to-head stats between a batsman and bowler"""
+    matchup_df = df[(df['batter'] == batsman) & (df['bowler'] == bowler)]
     
-    else:  # bowler
-        player_df = df[df['bowler'] == player_name]
-        
-        stats = {
-            'Wickets': player_df['is_wicket'].sum(),
-            'Overs Bowled': len(player_df) // 6,
-            'Runs Conceded': player_df['total_runs'].sum(),
-            'Economy': (player_df['total_runs'].sum() / (len(player_df) / 6)),
-            'Dot Balls': len(player_df[player_df['batsman_runs'] == 0]),
-            'Average': player_df['total_runs'].sum() / max(1, player_df['is_wicket'].sum()),
-            'Teams Played For': player_df['bowling_team'].unique().tolist(),
-            'Powerplay Wickets': player_df[player_df['over'] <= 6]['is_wicket'].sum(),
-            'Death Overs Wickets': player_df[player_df['over'] >= 16]['is_wicket'].sum()
-        }
-        
-        # Phase-wise performance
-        phase_stats = {
-            'Powerplay (1-6)': {
-                'Wickets': player_df[player_df['over'] <= 6]['is_wicket'].sum(),
-                'Economy': (player_df[player_df['over'] <= 6]['total_runs'].sum() / 
-                          (len(player_df[player_df['over'] <= 6]) / 6))
-            },
-            'Middle (7-15)': {
-                'Wickets': player_df[(player_df['over'] > 6) & (player_df['over'] <= 15)]['is_wicket'].sum(),
-                'Economy': (player_df[(player_df['over'] > 6) & (player_df['over'] <= 15)]['total_runs'].sum() / 
-                          (len(player_df[(player_df['over'] > 6) & (player_df['over'] <= 15)]) / 6))
-            },
-            'Death (16-20)': {
-                'Wickets': player_df[player_df['over'] >= 16]['is_wicket'].sum(),
-                'Economy': (player_df[player_df['over'] >= 16]['total_runs'].sum() / 
-                          (len(player_df[player_df['over'] >= 16]) / 6))
-            }
-        }
-        
-        # Team-wise performance
-        team_wise = player_df.groupby('batting_team').agg({
-            'is_wicket': 'sum',
-            'total_runs': 'sum',
-            'batsman_runs': lambda x: len(x[x == 0])  # dot balls
-        }).reset_index()
-        team_wise.columns = ['Team', 'Wickets', 'Runs Conceded', 'Dot Balls']
-        team_wise['Economy'] = team_wise['Runs Conceded'] / (len(player_df) / 6)
-        
-        return stats, phase_stats, team_wise
-
-def head_to_head_comparison(df, team1, team2):
-    # Filter matches between the two teams
-    h2h_df = df[((df['batting_team'] == team1) & (df['bowling_team'] == team2)) |
-                ((df['batting_team'] == team2) & (df['bowling_team'] == team1))]
-    
-    # Team Stats
-    team_stats = {}
-    for team in [team1, team2]:
-        batting_df = h2h_df[h2h_df['batting_team'] == team]
-        bowling_df = h2h_df[h2h_df['bowling_team'] == team]
-        
-        team_stats[team] = {
-            'Total Runs Scored': batting_df['total_runs'].sum(),
-            'Wickets Lost': batting_df['is_wicket'].sum(),
-            'Wickets Taken': bowling_df['is_wicket'].sum(),
-            'Fours Hit': len(batting_df[batting_df['batsman_runs'] == 4]),
-            'Sixes Hit': len(batting_df[batting_df['batsman_runs'] == 6]),
-            'Run Rate': (batting_df['total_runs'].sum() / 
-                        (batting_df['over'].max() + 1)),
-            'Economy Rate': (bowling_df['total_runs'].sum() / 
-                           (bowling_df['over'].max() + 1))
-        }
-    
-    # Top Performers
-    top_batsmen = h2h_df.groupby('batter')['batsman_runs'].agg([
-        'sum', 'count',
-        lambda x: len(x[x == 4]),  # fours
-        lambda x: len(x[x == 6])   # sixes
-    ]).reset_index()
-    top_batsmen.columns = ['Batsman', 'Runs', 'Balls', 'Fours', 'Sixes']
-    top_batsmen['Strike Rate'] = (top_batsmen['Runs'] / top_batsmen['Balls']) * 100
-    
-    top_bowlers = h2h_df.groupby('bowler').agg({
-        'is_wicket': 'sum',
-        'total_runs': 'sum',
-        'batsman_runs': lambda x: len(x[x == 0])  # dot balls
-    }).reset_index()
-    top_bowlers.columns = ['Bowler', 'Wickets', 'Runs Conceded', 'Dot Balls']
-    
-    return team_stats, top_batsmen.sort_values('Runs', ascending=False), top_bowlers.sort_values('Wickets', ascending=False)
-
-def team_analysis_page(df):
-    st.header("Team Analysis")
-    
-    selected_team = st.selectbox("Select Team", sorted(df['batting_team'].unique()))
-    
-    team_df = df[df['batting_team'] == selected_team]
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Total Runs", f"{team_df['total_runs'].sum():,}")
-    with col2:
-        st.metric("Total Matches", f"{team_df['match_id'].nunique():,}")
-    with col3:
-        st.metric("Run Rate", f"{(team_df['total_runs'].sum() / (team_df['over'].max() + 1)):.2f}")
-    
-    # Phase-wise Analysis
-    st.subheader("Phase-wise Performance")
-    phases = {
-        'Powerplay (1-6)': team_df[team_df['over'] <= 6],
-        'Middle Overs (7-15)': team_df[(team_df['over'] > 6) & (team_df['over'] <= 15)],
-        'Death Overs (16-20)': team_df[team_df['over'] >= 16]
+    stats = {
+        'Total Balls': len(matchup_df),
+        'Runs Scored': matchup_df['batsman_runs'].sum(),
+        'Wickets': matchup_df['is_wicket'].sum(),
+        'Dot Balls': len(matchup_df[matchup_df['batsman_runs'] == 0]),
+        'Boundaries': len(matchup_df[matchup_df['batsman_runs'] >= 4]),
+        'Strike Rate': (matchup_df['batsman_runs'].sum() / max(1, len(matchup_df))) * 100,
+        'Dismissal Rate': (matchup_df['is_wicket'].sum() / max(1, len(matchup_df))) * 100
     }
     
-    phase_metrics = []
-    for phase_name, phase_df in phases.items():
-        phase_metrics.append({
-            'Phase': phase_name,
-            'Runs': phase_df['total_runs'].sum(),
-            'Run Rate': phase_df['total_runs'].sum() / (phase_df['over'].nunique()),
-            'Wickets': phase_df['is_wicket'].sum()
-        })
+    # Phase-wise breakdown
+    phases = {
+        'Powerplay': matchup_df[matchup_df['over'] <= 6],
+        'Middle Overs': matchup_df[(matchup_df['over'] > 6) & (matchup_df['over'] <= 15)],
+        'Death Overs': matchup_df[matchup_df['over'] > 15]
+    }
     
-    phase_df = pd.DataFrame(phase_metrics)
-    fig = go.Figure(data=[
-        go.Bar(name='Runs', y=phase_df['Phase'], x=phase_df['Runs'], orientation='h'),
-        go.Bar(name='Run Rate', y=phase_df['Phase'], x=phase_df['Run Rate'], orientation='h')
-    ])
-    fig.update_layout(barmode='group')
-    st.plotly_chart(fig, use_container_width=True)
+    phase_stats = {}
+    for phase, phase_df in phases.items():
+        if len(phase_df) > 0:
+            phase_stats[phase] = {
+                'Balls': len(phase_df),
+                'Runs': phase_df['batsman_runs'].sum(),
+                'Wickets': phase_df['is_wicket'].sum(),
+                'Strike Rate': (phase_df['batsman_runs'].sum() / max(1, len(phase_df))) * 100
+            }
+    
+    return stats, phase_stats
 
-def player_profiles_page(df):
-    st.header("Player Profiles")
-    
-    # Player type selection
-    player_type = st.radio("Select Player Type", ["Batsman", "Bowler"])
-    
-    if player_type == "Batsman":
-        players = sorted(df['batter'].unique())
-        selected_player = st.selectbox("Select Batsman", players)
-        stats, phase_runs, team_wise = calculate_player_stats(df, selected_player, 'batsman')
+def analyze_pressure_situations(df, player_name, role='batsman'):
+    """Analyze player performance in pressure situations"""
+    if role == 'batsman':
+        player_df = df[df['batter'] == player_name]
         
-        # Display stats
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Runs", f"{stats['Total Runs']:,}")
-        with col2:
-            st.metric("Strike Rate", f"{stats['Strike Rate']:.2f}")
-        with col3:
-            st.metric("Average", f"{stats['Average']:.2f}")
-        with col4:
-            st.metric("Highest Score", stats['Highest Score'])
+        # Define pressure situations
+        death_overs = player_df[player_df['over'] >= 16]
+        powerplay = player_df[player_df['over'] <= 6]
         
-        # Phase-wise performance
-        st.subheader("Phase-wise Performance")
-        fig = px.bar(
-            x=list(phase_runs.keys()),
-            y=list(phase_runs.values()),
-            title="Runs in Different Phases"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Team-wise performance
-        st.subheader("Performance Against Teams")
-        st.dataframe(team_wise.sort_values('Runs', ascending=False))
-        
-        # Additional batting insights
-        st.subheader("Additional Insights")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Fours", stats['Fours'])
-            st.metric("Powerplay Runs", stats['Powerplay Runs'])
-        with col2:
-            st.metric("Sixes", stats['Sixes'])
-            st.metric("Death Overs Runs", stats['Death Overs Runs'])
-            
-    else:  # Bowler
-        players = sorted(df['bowler'].unique())
-        selected_player = st.selectbox("Select Bowler", players)
-        stats, phase_stats, team_wise = calculate_player_stats(df, selected_player, 'bowler')
-        
-        # Display stats
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Wickets", stats['Wickets'])
-        with col2:
-            st.metric("Economy", f"{stats['Economy']:.2f}")
-        with col3:
-            st.metric("Average", f"{stats['Average']:.2f}")
-        with col4:
-            st.metric("Dot Balls", stats['Dot Balls'])
-        
-        # Phase-wise performance
-        st.subheader("Phase-wise Performance")
-        phase_df = pd.DataFrame({
-            'Phase': list(phase_stats.keys()),
-            'Wickets': [phase['Wickets'] for phase in phase_stats.values()],
-            'Economy': [phase['Economy'] for phase in phase_stats.values()]
-        })
-
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(go.Bar(name="Wickets", x=phase_df['Phase'], y=phase_df['Wickets']), secondary_y=False)
-        fig.add_trace(go.Scatter(name="Economy", x=phase_df['Phase'], y=phase_df['Economy'], mode='lines+markers'), secondary_y=True)
-        
-        fig.update_layout(
-            title="Phase-wise Bowling Performance",
-            yaxis_title="Wickets",
-            yaxis2_title="Economy Rate"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Team-wise performance
-        st.subheader("Performance Against Teams")
-        st.dataframe(team_wise.sort_values('Wickets', ascending=False))
-        
-        # Additional bowling insights
-        st.subheader("Additional Insights")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Overs Bowled", stats['Overs Bowled'])
-            st.metric("Powerplay Wickets", stats['Powerplay Wickets'])
-        with col2:
-            st.metric("Runs Conceded", stats['Runs Conceded'])
-            st.metric("Death Overs Wickets", stats['Death Overs Wickets'])
-
-def player_profiles_page(df):
-    st.header("Player Profiles")
-    
-    # Player type selection
-    player_type = st.radio("Select Player Type", ["Batsman", "Bowler"])
-    
-    if player_type == "Batsman":
-        players = sorted(df['batter'].unique())
-        selected_player = st.selectbox("Select Batsman", players)
-        stats, phase_runs, team_wise = calculate_player_stats(df, selected_player, 'batsman')
-        
-        # Display stats
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Runs", f"{stats['Total Runs']:,}")
-        with col2:
-            st.metric("Strike Rate", f"{stats['Strike Rate']:.2f}")
-        with col3:
-            st.metric("Average", f"{stats['Average']:.2f}")
-        with col4:
-            st.metric("Highest Score", stats['Highest Score'])
-        
-        # Phase-wise performance
-        st.subheader("Phase-wise Performance")
-        fig = px.bar(
-            x=list(phase_runs.keys()),
-            y=list(phase_runs.values()),
-            title="Runs in Different Phases"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Team-wise performance
-        st.subheader("Performance Against Teams")
-        st.dataframe(team_wise.sort_values('Runs', ascending=False))
-        
-        # Additional batting insights
-        st.subheader("Additional Insights")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Fours", stats['Fours'])
-            st.metric("Powerplay Runs", stats['Powerplay Runs'])
-        with col2:
-            st.metric("Sixes", stats['Sixes'])
-            st.metric("Death Overs Runs", stats['Death Overs Runs'])
-            
-    else:  # Bowler
-        players = sorted(df['bowler'].unique())
-        selected_player = st.selectbox("Select Bowler", players)
-        stats, phase_stats, team_wise = calculate_player_stats(df, selected_player, 'bowler')
-        
-        # Display stats
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Wickets", stats['Wickets'])
-        with col2:
-            st.metric("Economy", f"{stats['Economy']:.2f}")
-        with col3:
-            st.metric("Average", f"{stats['Average']:.2f}")
-        with col4:
-            st.metric("Dot Balls", stats['Dot Balls'])
-        
-        # Phase-wise performance
-        st.subheader("Phase-wise Performance")
-        phase_df = pd.DataFrame({
-            'Phase': list(phase_stats.keys()),
-            'Wickets': [phase['Wickets'] for phase in phase_stats.values()],
-            'Economy': [phase['Economy'] for phase in phase_stats.values()]
-        })
-
-        fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(go.Bar(name="Wickets", x=phase_df['Phase'], y=phase_df['Wickets']), secondary_y=False)
-        fig.add_trace(go.Scatter(name="Economy", x=phase_df['Phase'], y=phase_df['Economy'], mode='lines+markers'), secondary_y=True)
-        
-        fig.update_layout(
-            title="Phase-wise Bowling Performance",
-            yaxis_title="Wickets",
-            yaxis2_title="Economy Rate"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Team-wise performance
-        st.subheader("Performance Against Teams")
-        st.dataframe(team_wise.sort_values('Wickets', ascending=False))
-        
-        # Additional bowling insights
-        st.subheader("Additional Insights")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Overs Bowled", stats['Overs Bowled'])
-            st.metric("Powerplay Wickets", stats['Powerplay Wickets'])
-        with col2:
-            st.metric("Runs Conceded", stats['Runs Conceded'])
-            st.metric("Death Overs Wickets", stats['Death Overs Wickets'])
-
-def head_to_head_page(df):
-    st.header("Head to Head Analysis")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        team1 = st.selectbox("Select First Team", sorted(df['batting_team'].unique()), key='team1')
-    with col2:
-        team2 = st.selectbox("Select Second Team", sorted(df['batting_team'].unique()), key='team2')
-    
-    if team1 != team2:
-        team_stats, top_batsmen, top_bowlers = head_to_head_comparison(df, team1, team2)
-        
-        # Display team comparison
-        st.subheader("Team Comparison")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown(f"### {team1}")
-            for stat, value in team_stats[team1].items():
-                if isinstance(value, float):
-                    st.metric(stat, f"{value:.2f}")
-                else:
-                    st.metric(stat, value)
-        
-        with col2:
-            st.markdown(f"### {team2}")
-            for stat, value in team_stats[team2].items():
-                if isinstance(value, float):
-                    st.metric(stat, f"{value:.2f}")
-                else:
-                    st.metric(stat, value)
-        
-        # Top performers
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Top Batsmen")
-            st.dataframe(top_batsmen.head(10))
-        
-        with col2:
-            st.subheader("Top Bowlers")
-            st.dataframe(top_bowlers.head(10))
-        
-        # Head to head visualization
-        st.subheader("Match-up Analysis")
-        fig = go.Figure(data=[
-            go.Bar(name=team1, x=['Runs Scored', 'Wickets Taken'], 
-                  y=[team_stats[team1]['Total Runs Scored'], team_stats[team1]['Wickets Taken']]),
-            go.Bar(name=team2, x=['Runs Scored', 'Wickets Taken'], 
-                  y=[team_stats[team2]['Total Runs Scored'], team_stats[team2]['Wickets Taken']])
-        ])
-        fig.update_layout(barmode='group', title="Key Metrics Comparison")
-        st.plotly_chart(fig, use_container_width=True)
+        stats = {
+            'Death Overs SR': (death_overs['batsman_runs'].sum() / max(1, len(death_overs))) * 100,
+            'Powerplay SR': (powerplay['batsman_runs'].sum() / max(1, len(powerplay))) * 100,
+            'Death Overs Runs': death_overs['batsman_runs'].sum(),
+            'Powerplay Runs': powerplay['batsman_runs'].sum(),
+            'Death Overs Boundaries': len(death_overs[death_overs['batsman_runs'] >= 4]),
+            'Powerplay Boundaries': len(powerplay[powerplay['batsman_runs'] >= 4])
+        }
     else:
-        st.warning("Please select different teams for comparison")
-
-def records_page(df):
-    st.header("Records & Milestones")
-    
-    # Batting Records
-    st.subheader("Batting Records")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Highest individual scores
-        highest_scores = df.groupby(['match_id', 'batter'])['batsman_runs'].sum().sort_values(ascending=False)
-        st.markdown("#### Highest Individual Scores")
-        st.dataframe(highest_scores.head(10))
+        player_df = df[df['bowler'] == player_name]
         
-        # Most sixes
-        most_sixes = df[df['batsman_runs'] == 6].groupby('batter').size().sort_values(ascending=False)
-        st.markdown("#### Most Sixes")
-        st.dataframe(most_sixes.head(10))
+        death_overs = player_df[player_df['over'] >= 16]
+        powerplay = player_df[player_df['over'] <= 6]
+        
+        stats = {
+            'Death Overs Economy': (death_overs['total_runs'].sum() / max(1, len(death_overs)/6)),
+            'Powerplay Economy': (powerplay['total_runs'].sum() / max(1, len(powerplay)/6)),
+            'Death Overs Wickets': death_overs['is_wicket'].sum(),
+            'Powerplay Wickets': powerplay['is_wicket'].sum(),
+            'Death Overs Dots': len(death_overs[death_overs['batsman_runs'] == 0]),
+            'Powerplay Dots': len(powerplay[powerplay['batsman_runs'] == 0])
+        }
     
-    with col2:
-        # Fastest fifties (minimum 50 runs)
-        fifties = df.groupby(['match_id', 'batter'])['batsman_runs'].agg(['sum', 'count']).reset_index()
-        fifties = fifties[fifties['sum'] >= 50]
-        fifties['balls_to_fifty'] = fifties['count']
-        fifties = fifties.sort_values('balls_to_fifty').head(10)
-        st.markdown("#### Fastest Fifties")
-        st.dataframe(fifties[['batter', 'sum', 'balls_to_fifty']])
+    return stats
+
+def calculate_partnership_analysis(df):
+    """Analyze batting partnerships"""
+    partnerships = []
     
-    # Bowling Records
-    st.subheader("Bowling Records")
-    col1, col2 = st.columns(2)
+    for match_id in df['match_id'].unique():
+        match_df = df[df['match_id'] == match_id]
+        current_partners = []
+        partnership_runs = 0
+        
+        for _, ball in match_df.iterrows():
+            if ball['batter'] not in current_partners:
+                current_partners.append(ball['batter'])
+            if len(current_partners) == 2:
+                partnership_runs += ball['batsman_runs']
+                if ball['is_wicket']:
+                    partnerships.append({
+                        'match_id': match_id,
+                        'partners': tuple(sorted(current_partners)),
+                        'runs': partnership_runs,
+                        'batting_team': ball['batting_team'],
+                        'bowling_team': ball['bowling_team']
+                    })
+                    current_partners = [ball['batter']]
+                    partnership_runs = 0
     
-    with col1:
-        # Best bowling figures
-        bowling_figures = df.groupby(['match_id', 'bowler']).agg({
+    return pd.DataFrame(partnerships)
+
+def analyze_progressive_performance(df, player_name, role='batsman'):
+    """Track player's performance progression over time"""
+    if role == 'batsman':
+        performance_df = df[df['batter'] == player_name].groupby('match_id').agg({
+            'batsman_runs': 'sum',
+            'is_wicket': 'sum'
+        }).reset_index()
+        
+        performance_df['rolling_average'] = performance_df['batsman_runs'].rolling(window=5, min_periods=1).mean()
+        
+    else:
+        performance_df = df[df['bowler'] == player_name].groupby('match_id').agg({
             'is_wicket': 'sum',
             'total_runs': 'sum'
         }).reset_index()
-        bowling_figures = bowling_figures.sort_values(['is_wicket', 'total_runs'], ascending=[False, True])
-        st.markdown("#### Best Bowling Figures")
-        st.dataframe(bowling_figures.head(10))
+        
+        performance_df['rolling_economy'] = (performance_df['total_runs'] / 
+                                           (df[df['bowler'] == player_name].groupby('match_id').size() / 6))
     
+    return performance_df
+
+def player_profiles_page(df):
+    st.header("Advanced Player Analysis")
+    
+    player_type = st.radio("Select Player Type", ["Batsman", "Bowler"])
+    
+    if player_type == "Batsman":
+        players = sorted(df['batter'].unique())
+        selected_player = st.selectbox("Select Batsman", players)
+        
+        # Basic Stats
+        player_df = df[df['batter'] == selected_player]
+        total_runs = player_df['batsman_runs'].sum()
+        total_balls = len(player_df)
+        strike_rate = (total_runs / total_balls) * 100 if total_balls > 0 else 0
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Runs", f"{total_runs:,}")
+        with col2:
+            st.metric("Strike Rate", f"{strike_rate:.2f}")
+        with col3:
+            st.metric("Boundaries", f"{len(player_df[player_df['batsman_runs'] >= 4])}")
+        with col4:
+            st.metric("Innings", f"{player_df['match_id'].nunique()}")
+        
+        # Pressure Situation Analysis
+        st.subheader("Performance Under Pressure")
+        pressure_stats = analyze_pressure_situations(df, selected_player, 'batsman')
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Death Overs Strike Rate", f"{pressure_stats['Death Overs SR']:.2f}")
+            st.metric("Death Overs Boundaries", pressure_stats['Death Overs Boundaries'])
+        with col2:
+            st.metric("Powerplay Strike Rate", f"{pressure_stats['Powerplay SR']:.2f}")
+            st.metric("Powerplay Boundaries", pressure_stats['Powerplay Boundaries'])
+        
+        # Progressive Performance
+        st.subheader("Form Analysis")
+        progress_df = analyze_progressive_performance(df, selected_player, 'batsman')
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=progress_df.index, y=progress_df['rolling_average'],
+                                mode='lines+markers', name='5-Match Rolling Average'))
+        fig.update_layout(title="Batting Form Trend", xaxis_title="Matches", yaxis_title="Runs")
+        st.plotly_chart(fig, use_container_width=True)
+        
+    else:  # Bowler analysis
+        players = sorted(df['bowler'].unique())
+        selected_player = st.selectbox("Select Bowler", players)
+        
+        # Basic Stats
+        player_df = df[df['bowler'] == selected_player]
+        total_wickets = player_df['is_wicket'].sum()
+        total_overs = len(player_df) / 6
+        economy = player_df['total_runs'].sum() / total_overs if total_overs > 0 else 0
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Wickets", total_wickets)
+        with col2:
+            st.metric("Economy Rate", f"{economy:.2f}")
+        with col3:
+            st.metric("Dot Balls", f"{len(player_df[player_df['batsman_runs'] == 0])}")
+        with col4:
+            st.metric("Matches", f"{player_df['match_id'].nunique()}")
+        
+        # Pressure Situation Analysis
+        st.subheader("Performance Under Pressure")
+        pressure_stats = analyze_pressure_situations(df, selected_player, 'bowler')
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Death Overs Economy", f"{pressure_stats['Death Overs Economy']:.2f}")
+            st.metric("Death Overs Wickets", pressure_stats['Death Overs Wickets'])
+        with col2:
+            st.metric("Powerplay Economy", f"{pressure_stats['Powerplay Economy']:.2f}")
+            st.metric("Powerplay Wickets", pressure_stats['Powerplay Wickets'])
+        
+        # Form Analysis
+        st.subheader("Bowling Form")
+        progress_df = analyze_progressive_performance(df, selected_player, 'bowler')
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=progress_df.index, y=progress_df['rolling_economy'],
+                                mode='lines+markers', name='5-Match Rolling Economy'))
+        fig.update_layout(title="Economy Rate Trend", xaxis_title="Matches", yaxis_title="Economy")
+        st.plotly_chart(fig, use_container_width=True)
+
+def matchup_analysis_page(df):
+    st.header("Player Matchup Analysis")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        batsman = st.selectbox("Select Batsman", sorted(df['batter'].unique()))
     with col2:
-        # Most dot balls
-        dot_balls = df[df['batsman_runs'] == 0].groupby('bowler').size().sort_values(ascending=False)
-        st.markdown("#### Most Dot Balls")
-        st.dataframe(dot_balls.head(10))
+        bowler = st.selectbox("Select Bowler", sorted(df['bowler'].unique()))
+    
+    if batsman and bowler:
+        stats, phase_stats = calculate_matchup_stats(df, batsman, bowler)
+        
+        # Overall Stats
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Runs", stats['Runs Scored'])
+        with col2:
+            st.metric("Balls Faced", stats['Total Balls'])
+        with col3:
+            st.metric("Strike Rate", f"{stats['Strike Rate']:.2f}")
+        with col4:
+            st.metric("Wickets", stats['Wickets'])
+        
+        # Phase-wise Analysis
+        st.subheader("Phase-wise Matchup")
+        phase_df = pd.DataFrame([
+            {
+                'Phase': phase,
+                'Runs': data['Runs'],
+                'Balls': data['Balls'],
+                'Strike Rate': data['Strike Rate'],
+                'Wickets': data['Wickets']
+            }
+            for phase, data in phase_stats.items()
+        ])
+        
+        st.dataframe(phase_df)
+        
+        # Visualization
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=phase_df['Phase'], y=phase_df['Strike Rate'], name='Strike Rate'))
+        fig.update_layout(title=f"{batsman} vs {bowler} - Phase-wise Performance")
+        st.plotly_chart(fig, use_container_width=True)
+
+def records_page(df):
+    st.header("Advanced Records & Analysis")
+    
+    # Enhanced Fastest Fifties Analysis
+    st.subheader("Fastest Fifties Analysis")
+    
+    fastest_fifties = []
+    for match_id in df['match_id'].unique():
+        match_df = df[df['match_id'] == match_id]
+        for batter in match_df['batter'].unique():
+            batter_df = match_df[match_df['batter'] == batter]
+            runs = batter_df['batsman_runs'].cumsum()
+            if runs.max() >= 50:
+                balls_to_fifty = runs[runs >= 50].index[0] - batter_df.index[0] + 1
+                fastest_fifties.append({
+                    'Batsman': batter,
+                    'Balls': balls_to_fifty,
+                    'Total Score': runs.max(),
+                    'Against': match_df['bowling_team'].iloc[0],
+                    'Match ID': match_id,
+                    'Batting Team': match_df['batting_team'].iloc[0]
+                })
+    
+    fifty_df = pd.DataFrame(fastest_fifties).sort_values('Balls')
+    
+    # Display top 10 fastest fifties with context
+    st.dataframe(fifty_df.head(10))
+    
+    # Partnership Records
+    st.subheader("Notable Partnerships")
+    partnerships_df = calculate_partnership_analysis(df)
+    top_partnerships = partnerships_df.nlargest(10, 'runs')
+    
+    st.dataframe(top_partnerships[['partners', 'runs', 'batting_team', 'bowling_team']])
+    
+    # Phase Specialists Analysis
+    st.subheader("Phase Specialists")
+    
+    # Define phases
+    df['phase'] = pd.cut(df['over'], 
+                        bins=[-np.inf, 6, 15, np.inf],
+                        labels=['Powerplay', 'Middle Overs', 'Death Overs'])
+    
+    # Batting Phase Specialists
+    batting_phase_stats = []
+    for phase in ['Powerplay', 'Middle Overs', 'Death Overs']:
+        phase_df = df[df['phase'] == phase]
+        batsman_stats = phase_df.groupby('batter').agg({
+            'batsman_runs': 'sum',
+            'match_id': 'nunique',
+            'batter': 'size'  # number of balls
+        }).reset_index()
+        
+        batsman_stats['strike_rate'] = (batsman_stats['batsman_runs'] / batsman_stats['batter']) * 100
+        batsman_stats['phase'] = phase
+        batsman_stats = batsman_stats[batsman_stats['match_id'] >= 5]  # minimum 5 matches
+        batting_phase_stats.append(batsman_stats)
+    
+    # Bowling Phase Specialists
+    bowling_phase_stats = []
+    for phase in ['Powerplay', 'Middle Overs', 'Death Overs']:
+        phase_df = df[df['phase'] == phase]
+        bowler_stats = phase_df.groupby('bowler').agg({
+            'total_runs': 'sum',
+            'is_wicket': 'sum',
+            'match_id': 'nunique',
+            'bowler': 'size'  # number of balls
+        }).reset_index()
+        
+        bowler_stats['economy'] = (bowler_stats['total_runs'] / bowler_stats['bowler']) * 6
+        bowler_stats['phase'] = phase
+        bowler_stats = bowler_stats[bowler_stats['match_id'] >= 5]  # minimum 5 matches
+        bowling_phase_stats.append(bowler_stats)
+    
+    # Display Phase Specialists
+    tab1, tab2 = st.tabs(["Batting Specialists", "Bowling Specialists"])
+    
+    with tab1:
+        for phase in ['Powerplay', 'Middle Overs', 'Death Overs']:
+            st.subheader(f"{phase} Batting Specialists")
+            phase_data = pd.concat(batting_phase_stats)
+            top_batsmen = phase_data[phase_data['phase'] == phase].nlargest(5, 'strike_rate')
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Highest SR", 
+                         f"{top_batsmen['strike_rate'].iloc[0]:.2f}",
+                         f"{top_batsmen['batter'].iloc[0]}")
+            with col2:
+                st.metric("Most Runs",
+                         f"{phase_data[phase_data['phase'] == phase]['batsman_runs'].max()}",
+                         f"{phase_data[phase_data['phase'] == phase].nlargest(1, 'batsman_runs')['batter'].iloc[0]}")
+            
+            st.dataframe(top_batsmen[['batter', 'batsman_runs', 'strike_rate', 'match_id']])
+    
+    with tab2:
+        for phase in ['Powerplay', 'Middle Overs', 'Death Overs']:
+            st.subheader(f"{phase} Bowling Specialists")
+            phase_data = pd.concat(bowling_phase_stats)
+            top_bowlers = phase_data[phase_data['phase'] == phase].nsmallest(5, 'economy')
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Best Economy",
+                         f"{top_bowlers['economy'].iloc[0]:.2f}",
+                         f"{top_bowlers['bowler'].iloc[0]}")
+            with col2:
+                st.metric("Most Wickets",
+                         f"{phase_data[phase_data['phase'] == phase]['is_wicket'].max()}",
+                         f"{phase_data[phase_data['phase'] == phase].nlargest(1, 'is_wicket')['bowler'].iloc[0]}")
+            
+            st.dataframe(top_bowlers[['bowler', 'economy', 'is_wicket', 'match_id']])
+    
+    # Death Over Specialists - Combined Analysis
+    st.subheader("Death Overs Impact Players")
+    death_overs_df = df[df['phase'] == 'Death Overs']
+    
+    # Calculate Impact Score for both batsmen and bowlers
+    batsmen_impact = death_overs_df.groupby('batter').agg({
+        'batsman_runs': lambda x: (sum(x) / len(x)) * 100,  # Strike Rate
+        'match_id': 'nunique'
+    }).reset_index()
+    batsmen_impact = batsmen_impact[batsmen_impact['match_id'] >= 5]
+    
+    bowlers_impact = death_overs_df.groupby('bowler').agg({
+        'total_runs': lambda x: (sum(x) / len(x)) * 6,  # Economy
+        'is_wicket': 'sum',
+        'match_id': 'nunique'
+    }).reset_index()
+    bowlers_impact = bowlers_impact[bowlers_impact['match_id'] >= 5]
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Best Death Over Batsmen")
+        st.dataframe(batsmen_impact.nlargest(5, 'batsman_runs'))
+    with col2:
+        st.subheader("Best Death Over Bowlers")
+        st.dataframe(bowlers_impact.nsmallest(5, 'total_runs'))
+
 
 def main():
-    st.title("🏏 Advanced IPL Analytics Dashboard (2008-2024)")
-    st.markdown("---")
+    st.title("🏏 Advanced IPL Analytics Dashboard")
     
     # Load data
-    with st.spinner("Loading data..."):
+    try:
         df = load_data()
+    except Exception as e:
+        st.error(f"Error loading data: {str(e)}")
+        return
     
-    # Main Navigation
-    pages = ["Team Analysis", "Player Profiles", "Head to Head Analysis", "Records & Milestones"]
-    selected_page = st.sidebar.selectbox("Navigation", pages)
+    # Navigation
+    pages = {
+        "Player Profiles": player_profiles_page,
+        "Matchup Analysis": matchup_analysis_page,
+        "Records & Statistics": records_page
+    }
     
-    if selected_page == "Team Analysis":
-        team_analysis_page(df)
-    elif selected_page == "Player Profiles":
-        player_profiles_page(df)
-    elif selected_page == "Head to Head Analysis":
-        head_to_head_page(df)
-    else:
-        records_page(df)
+    # Sidebar
+    st.sidebar.title("Navigation")
+    selection = st.sidebar.radio("Go to", list(pages.keys()))
+    
+    # Season filter in sidebar
+    if 'season' in df.columns:
+        seasons = sorted(df['season'].unique())
+        selected_season = st.sidebar.multiselect(
+            "Select Season(s)",
+            seasons,
+            default=seasons[-1:]
+        )
+        
+        # Filter data based on selected season
+        if selected_season:
+            df = df[df['season'].isin(selected_season)]
+    
+    # Display current date and last update
+    st.sidebar.markdown("---")
+    st.sidebar.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d')}")
+    
+    # Display selected page
+    pages[selection](df)
 
 if __name__ == "__main__":
     main()
+
+

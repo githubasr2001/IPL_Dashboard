@@ -479,11 +479,15 @@ def calculate_most_wickets(df):
 def calculate_best_economy(df):
     bowler_stats = df.groupby('bowler').agg({
         'total_runs': 'sum',
-        'bowler': 'size'  # number of balls
-    }).reset_index()
-    bowler_stats['overs'] = bowler_stats['bowler'] / 6
+        'bowler': 'count'  # number of balls, renamed to avoid conflict
+    }).rename(columns={'bowler': 'balls'}).reset_index()
+    
+    bowler_stats['overs'] = bowler_stats['balls'] / 6
     bowler_stats['economy'] = bowler_stats['total_runs'] / bowler_stats['overs']
-    return bowler_stats[bowler_stats['overs'] >= 20].sort_values('economy').head(10)
+    
+    return bowler_stats[bowler_stats['overs'] >= 20].sort_values('economy').head(10)[
+        ['bowler', 'overs', 'total_runs', 'economy']
+    ]
 
 def calculate_highest_totals(df):
     return df.groupby(['match_id', 'batting_team'])['total_runs'].sum().reset_index().sort_values(

@@ -233,65 +233,164 @@ def player_analysis_page(df):
             with col3:
                 st.metric("Average", f"{bowling_stats['average']:.2f}")
 
-def milestones_page(df):
-    st.header("Milestones & Records 🏆")
+
+            
+def records_page(df):
+    st.header("Advanced Records & Analysis")
     
-    tab1, tab2, tab3 = st.tabs(["Batting Records", "Bowling Records", "Team Records"])
+    # Create tabs for different record categories
+    tab1, tab2, tab3 = st.tabs(["Batting Records", "Bowling Records", "Team Analysis"])
     
     with tab1:
         st.subheader("Batting Milestones")
         
-        # Fastest Fifties
-        fastest_fifties = calculate_fastest_fifties(df)
-        st.write("Fastest Fifties")
-        st.dataframe(fastest_fifties)
+        # Fastest Fifties and Centuries Analysis
+        col1, col2 = st.columns(2)
         
-        # Fastest Centuries
-        fastest_centuries = calculate_fastest_centuries(df)
-        st.write("Fastest Centuries")
-        st.dataframe(fastest_centuries)
+        with col1:
+            # Fastest Fifties Analysis
+            fastest_fifties = []
+            for match_id in df['match_id'].unique():
+                match_df = df[df['match_id'] == match_id]
+                for batter in match_df['batter'].unique():
+                    batter_df = match_df[match_df['batter'] == batter]
+                    runs = batter_df['batsman_runs'].cumsum()
+                    if runs.max() >= 50:
+                        balls_to_fifty = len(batter_df[batter_df['batsman_runs'].cumsum() < 50]) + 1
+                        fastest_fifties.append({
+                            'Batsman': batter,
+                            'Balls': balls_to_fifty,
+                            'Total Score': runs.max(),
+                            'Against': match_df['bowling_team'].iloc[0],
+                            'Match ID': match_id
+                        })
+            
+            fifty_df = pd.DataFrame(fastest_fifties).sort_values('Balls')
+            st.write("Fastest Fifties")
+            st.dataframe(fifty_df.head(10))
+
+        with col2:
+            # Fastest Centuries Analysis
+            fastest_centuries = []
+            for match_id in df['match_id'].unique():
+                match_df = df[df['match_id'] == match_id]
+                for batter in match_df['batter'].unique():
+                    batter_df = match_df[match_df['batter'] == batter]
+                    runs = batter_df['batsman_runs'].cumsum()
+                    if runs.max() >= 100:
+                        balls_to_hundred = len(batter_df[batter_df['batsman_runs'].cumsum() < 100]) + 1
+                        fastest_centuries.append({
+                            'Batsman': batter,
+                            'Balls': balls_to_hundred,
+                            'Total Score': runs.max(),
+                            'Against': match_df['bowling_team'].iloc[0],
+                            'Match ID': match_id
+                        })
+            
+            century_df = pd.DataFrame(fastest_centuries).sort_values('Balls')
+            st.write("Fastest Centuries")
+            st.dataframe(century_df.head(10))
         
         # Most Sixes and Fours
         col1, col2 = st.columns(2)
         with col1:
-            most_sixes = calculate_most_sixes(df)
+            most_sixes = df[df['batsman_runs'] == 6].groupby('batter').agg({
+                'batsman_runs': 'count',
+                'match_id': 'nunique'
+            }).reset_index()
+            most_sixes.columns = ['Batsman', 'Sixes', 'Matches']
+            most_sixes['Sixes/Match'] = (most_sixes['Sixes'] / most_sixes['Matches']).round(2)
             st.write("Most Sixes")
-            st.dataframe(most_sixes)
+            st.dataframe(most_sixes.sort_values('Sixes', ascending=False).head(10))
+        
         with col2:
-            most_fours = calculate_most_fours(df)
+            most_fours = df[df['batsman_runs'] == 4].groupby('batter').agg({
+                'batsman_runs': 'count',
+                'match_id': 'nunique'
+            }).reset_index()
+            most_fours.columns = ['Batsman', 'Fours', 'Matches']
+            most_fours['Fours/Match'] = (most_fours['Fours'] / most_fours['Matches']).round(2)
             st.write("Most Fours")
-            st.dataframe(most_fours)
-            
+            st.dataframe(most_fours.sort_values('Fours', ascending=False).head(10))
+    
     with tab2:
-        st.subheader("Bowling Milestones")
+        st.subheader("Bowling Records")
         
         # Best Bowling Figures
-        best_bowling = calculate_best_bowling(df)
+        bowling_figures = df.groupby(['match_id', 'bowler', 'bowling_team']).agg({
+            'is_wicket': 'sum',
+            'total_runs': 'sum',
+            'over': 'nunique'
+        }).reset_index()
+        bowling_figures['Overs'] = bowling_figures['over']
+        bowling_figures['Figures'] = bowling_figures.apply(
+            lambda x: f"{x['is_wicket']}/{x['total_runs']} ({x['Overs']})", axis=1
+        )
+        best_bowling = bowling_figures.sort_values(
+            ['is_wicket', 'total_runs'], 
+            ascending=[False, True]
+        ).head(10)
         st.write("Best Bowling Figures")
-        st.dataframe(best_bowling)
+        st.dataframe(best_bowling[['bowler', 'Figures', 'bowling_team', 'match_id']])
         
-        # Most Wickets
-        most_wickets = calculate_most_wickets(df)
-        st.write("Most Wickets")
-        st.dataframe(most_wickets)
+        # Most Wickets and Best Economy
+        col1, col2 = st.columns(2)
+        with col1:
+            most_wickets = df.groupby('bowler').agg({
+                'is_wicket': 'sum',
+                'match_id': 'nunique',
+                'over': 'nunique'
+            }).reset_index()
+            most_wickets.columns = ['Bowler', 'Wickets', 'Matches', 'Overs']
+            most_wickets['Avg'] = (
+                most_wickets['Wickets'] / most_wickets['Matches']
+            ).round(2)
+            st.write("Most Wickets")
+            st.dataframe(most_wickets.sort_values('Wickets', ascending=False).head(10))
         
-        # Best Economy Rates
-        best_economy = calculate_best_economy(df)
-        st.write("Best Economy Rates (Min. 20 overs)")
-        st.dataframe(best_economy)
-        
+        with col2:
+            bowler_stats = df.groupby('bowler').agg({
+                'total_runs': 'sum',
+                'over': 'nunique'
+            }).reset_index()
+            
+            bowler_stats['Economy'] = (
+                bowler_stats['total_runs'] / bowler_stats['over']
+            ).round(2)
+            min_overs = 20  # Minimum overs threshold
+            best_economy = bowler_stats[bowler_stats['over'] >= min_overs].sort_values('Economy')
+            st.write(f"Best Economy Rates (Min. {min_overs} overs)")
+            st.dataframe(best_economy[['bowler', 'over', 'Economy']].head(10))
+    
     with tab3:
-        st.subheader("Team Records")
+        st.subheader("Team Analysis")
         
-        # Highest Team Totals
-        highest_totals = calculate_highest_totals(df)
+        # Team Totals
+        team_totals = df.groupby(['match_id', 'batting_team', 'bowling_team']).agg({
+            'total_runs': 'sum',
+            'over': 'nunique'
+        }).reset_index()
+        team_totals['Run Rate'] = (
+            team_totals['total_runs'] / team_totals['over']
+        ).round(2)
         st.write("Highest Team Totals")
-        st.dataframe(highest_totals)
+        st.dataframe(team_totals.sort_values('total_runs', ascending=False).head(10))
         
-        # Best Team Strike Rates
-        team_sr = calculate_team_strike_rates(df)
-        st.write("Best Team Strike Rates")
-        st.dataframe(team_sr)
+        # Team Performance Analysis
+        team_stats = df.groupby('batting_team').agg({
+            'total_runs': 'sum',
+            'match_id': 'nunique',
+            'over': 'nunique'
+        }).reset_index()
+        team_stats['Avg Runs/Match'] = (
+            team_stats['total_runs'] / team_stats['match_id']
+        ).round(2)
+        team_stats['Run Rate'] = (
+            team_stats['total_runs'] / team_stats['over']
+        ).round(2)
+        st.write("Team Performance Analysis")
+        st.dataframe(team_stats.sort_values('Run Rate', ascending=False))
+
 
 # Helper functions for analysis
 def analyze_batsman(df, player):

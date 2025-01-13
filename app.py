@@ -1,9 +1,11 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
+import zipfile
 
 # Set page config
 st.set_page_config(
@@ -105,9 +107,7 @@ st.markdown("""
 def load_data():
     # Read the compressed CSV file
     with zipfile.ZipFile('deliveries.csv.zip') as z:
-        # Assuming the CSV file inside the zip has the same name
         with z.open('deliveries.csv') as file:
-            # Read the CSV file into a pandas DataFrame
             df = pd.read_csv(file)
     
     team_mapping = {
@@ -125,12 +125,6 @@ def load_data():
     
     return df
 
-# Rest of the code remains exactly the same...
-[Previous functions: calculate_player_stats, head_to_head_comparison, main, 
-team_analysis_page, player_profiles_page, head_to_head_page, records_page]
-
-if __name__ == "__main__":
-    main()
 def calculate_player_stats(df, player_name, stat_type='batsman'):
     if stat_type == 'batsman':
         player_df = df[df['batter'] == player_name]
@@ -253,27 +247,6 @@ def head_to_head_comparison(df, team1, team2):
     
     return team_stats, top_batsmen.sort_values('Runs', ascending=False), top_bowlers.sort_values('Wickets', ascending=False)
 
-def main():
-    st.title("🏏 Advanced IPL Analytics Dashboard (2008-2024)")
-    st.markdown("---")
-    
-    # Load data
-    with st.spinner("Loading data..."):
-        df = load_data()
-    
-    # Main Navigation
-    pages = ["Team Analysis", "Player Profiles", "Head to Head Analysis", "Records & Milestones"]
-    selected_page = st.sidebar.selectbox("Navigation", pages)
-    
-    if selected_page == "Team Analysis":
-        team_analysis_page(df)
-    elif selected_page == "Player Profiles":
-        player_profiles_page(df)
-    elif selected_page == "Head to Head Analysis":
-        head_to_head_page(df)
-    else:
-        records_page(df)
-
 def team_analysis_page(df):
     st.header("Team Analysis")
     
@@ -350,6 +323,16 @@ def player_profiles_page(df):
         st.subheader("Performance Against Teams")
         st.dataframe(team_wise.sort_values('Runs', ascending=False))
         
+        # Additional batting insights
+        st.subheader("Additional Insights")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Fours", stats['Fours'])
+            st.metric("Powerplay Runs", stats['Powerplay Runs'])
+        with col2:
+            st.metric("Sixes", stats['Sixes'])
+            st.metric("Death Overs Runs", stats['Death Overs Runs'])
+            
     else:  # Bowler
         players = sorted(df['bowler'].unique())
         selected_player = st.selectbox("Select Bowler", players)
@@ -388,6 +371,110 @@ def player_profiles_page(df):
         # Team-wise performance
         st.subheader("Performance Against Teams")
         st.dataframe(team_wise.sort_values('Wickets', ascending=False))
+        
+        # Additional bowling insights
+        st.subheader("Additional Insights")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Overs Bowled", stats['Overs Bowled'])
+            st.metric("Powerplay Wickets", stats['Powerplay Wickets'])
+        with col2:
+            st.metric("Runs Conceded", stats['Runs Conceded'])
+            st.metric("Death Overs Wickets", stats['Death Overs Wickets'])
+
+def player_profiles_page(df):
+    st.header("Player Profiles")
+    
+    # Player type selection
+    player_type = st.radio("Select Player Type", ["Batsman", "Bowler"])
+    
+    if player_type == "Batsman":
+        players = sorted(df['batter'].unique())
+        selected_player = st.selectbox("Select Batsman", players)
+        stats, phase_runs, team_wise = calculate_player_stats(df, selected_player, 'batsman')
+        
+        # Display stats
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Runs", f"{stats['Total Runs']:,}")
+        with col2:
+            st.metric("Strike Rate", f"{stats['Strike Rate']:.2f}")
+        with col3:
+            st.metric("Average", f"{stats['Average']:.2f}")
+        with col4:
+            st.metric("Highest Score", stats['Highest Score'])
+        
+        # Phase-wise performance
+        st.subheader("Phase-wise Performance")
+        fig = px.bar(
+            x=list(phase_runs.keys()),
+            y=list(phase_runs.values()),
+            title="Runs in Different Phases"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Team-wise performance
+        st.subheader("Performance Against Teams")
+        st.dataframe(team_wise.sort_values('Runs', ascending=False))
+        
+        # Additional batting insights
+        st.subheader("Additional Insights")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Fours", stats['Fours'])
+            st.metric("Powerplay Runs", stats['Powerplay Runs'])
+        with col2:
+            st.metric("Sixes", stats['Sixes'])
+            st.metric("Death Overs Runs", stats['Death Overs Runs'])
+            
+    else:  # Bowler
+        players = sorted(df['bowler'].unique())
+        selected_player = st.selectbox("Select Bowler", players)
+        stats, phase_stats, team_wise = calculate_player_stats(df, selected_player, 'bowler')
+        
+        # Display stats
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Wickets", stats['Wickets'])
+        with col2:
+            st.metric("Economy", f"{stats['Economy']:.2f}")
+        with col3:
+            st.metric("Average", f"{stats['Average']:.2f}")
+        with col4:
+            st.metric("Dot Balls", stats['Dot Balls'])
+        
+        # Phase-wise performance
+        st.subheader("Phase-wise Performance")
+        phase_df = pd.DataFrame({
+            'Phase': list(phase_stats.keys()),
+            'Wickets': [phase['Wickets'] for phase in phase_stats.values()],
+            'Economy': [phase['Economy'] for phase in phase_stats.values()]
+        })
+
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig.add_trace(go.Bar(name="Wickets", x=phase_df['Phase'], y=phase_df['Wickets']), secondary_y=False)
+        fig.add_trace(go.Scatter(name="Economy", x=phase_df['Phase'], y=phase_df['Economy'], mode='lines+markers'), secondary_y=True)
+        
+        fig.update_layout(
+            title="Phase-wise Bowling Performance",
+            yaxis_title="Wickets",
+            yaxis2_title="Economy Rate"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Team-wise performance
+        st.subheader("Performance Against Teams")
+        st.dataframe(team_wise.sort_values('Wickets', ascending=False))
+        
+        # Additional bowling insights
+        st.subheader("Additional Insights")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Overs Bowled", stats['Overs Bowled'])
+            st.metric("Powerplay Wickets", stats['Powerplay Wickets'])
+        with col2:
+            st.metric("Runs Conceded", stats['Runs Conceded'])
+            st.metric("Death Overs Wickets", stats['Death Overs Wickets'])
 
 def head_to_head_page(df):
     st.header("Head to Head Analysis")
@@ -491,7 +578,26 @@ def records_page(df):
         st.markdown("#### Most Dot Balls")
         st.dataframe(dot_balls.head(10))
 
+def main():
+    st.title("🏏 Advanced IPL Analytics Dashboard (2008-2024)")
+    st.markdown("---")
+    
+    # Load data
+    with st.spinner("Loading data..."):
+        df = load_data()
+    
+    # Main Navigation
+    pages = ["Team Analysis", "Player Profiles", "Head to Head Analysis", "Records & Milestones"]
+    selected_page = st.sidebar.selectbox("Navigation", pages)
+    
+    if selected_page == "Team Analysis":
+        team_analysis_page(df)
+    elif selected_page == "Player Profiles":
+        player_profiles_page(df)
+    elif selected_page == "Head to Head Analysis":
+        head_to_head_page(df)
+    else:
+        records_page(df)
+
 if __name__ == "__main__":
     main()
-        
-  

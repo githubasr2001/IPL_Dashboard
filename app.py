@@ -101,11 +101,14 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-
-
 @st.cache_data
 def load_data():
-    df = pd.read_csv('deliveries.csv')
+    # Read the compressed CSV file
+    with zipfile.ZipFile('deliveries.csv.zip') as z:
+        # Assuming the CSV file inside the zip has the same name
+        with z.open('deliveries.csv') as file:
+            # Read the CSV file into a pandas DataFrame
+            df = pd.read_csv(file)
     
     team_mapping = {
         'Delhi Daredevils': 'Delhi Capitals',
@@ -122,6 +125,12 @@ def load_data():
     
     return df
 
+# Rest of the code remains exactly the same...
+[Previous functions: calculate_player_stats, head_to_head_comparison, main, 
+team_analysis_page, player_profiles_page, head_to_head_page, records_page]
+
+if __name__ == "__main__":
+    main()
 def calculate_player_stats(df, player_name, stat_type='batsman'):
     if stat_type == 'batsman':
         player_df = df[df['batter'] == player_name]

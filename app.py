@@ -442,6 +442,15 @@ def display_phase_performance(df, player, role):
             with col4:
                 st.metric("Economy", f"{economy:.2f}")
 
+
+        
+        
+        st.write("### Most 5 Wicket Hauls")
+        five_wickets = df.groupby(['match_id', 'bowler'])['is_wicket'].sum().reset_index()
+        five_wicket_hauls = five_wickets[five_wickets['is_wicket'] >= 5].groupby('bowler').size().reset_index(
+            name='5W Hauls').sort_values('5W Hauls', ascending=False).head(10)
+        st.dataframe(five_wicket_hauls)
+        
 def milestones_page(df):
     st.header("Milestones & Records 🏆")
     
@@ -462,30 +471,46 @@ def milestones_page(df):
         
         # Most Sixes
         st.write("### Most Sixes")
-        most_sixes = df[df['batsman_runs'] == 6].groupby('batter').size().reset_index(
-            name='Sixes').sort_values('Sixes', ascending=False).head(10)
+        most_sixes = (df[df['batsman_runs'] == 6]
+                     .groupby('batter', as_index=False)
+                     .size()
+                     .rename(columns={'size': 'Sixes'})
+                     .sort_values('Sixes', ascending=False)
+                     .head(10))
         st.dataframe(most_sixes)
         
         # Most Fours
         st.write("### Most Fours")
-        most_fours = df[df['batsman_runs'] == 4].groupby('batter').size().reset_index(
-            name='Fours').sort_values('Fours', ascending=False).head(10)
+        most_fours = (df[df['batsman_runs'] == 4]
+                     .groupby('batter', as_index=False)
+                     .size()
+                     .rename(columns={'size': 'Fours'})
+                     .sort_values('Fours', ascending=False)
+                     .head(10))
         st.dataframe(most_fours)
         
         # Most Centuries
         st.write("### Most Centuries")
         centuries_by_player = df.groupby(['match_id', 'batter'])['batsman_runs'].sum().reset_index()
-        centuries = centuries_by_player[centuries_by_player['batsman_runs'] >= 100].groupby('batter').size().reset_index(
-            name='Centuries').sort_values('Centuries', ascending=False).head(10)
+        centuries = (centuries_by_player[centuries_by_player['batsman_runs'] >= 100]
+                    .groupby('batter', as_index=False)
+                    .size()
+                    .rename(columns={'size': 'Centuries'})
+                    .sort_values('Centuries', ascending=False)
+                    .head(10))
         st.dataframe(centuries)
         
         # Most Fifties
         st.write("### Most Fifties")
         fifties_by_player = df.groupby(['match_id', 'batter'])['batsman_runs'].sum().reset_index()
-        fifties = fifties_by_player[
+        fifties = (fifties_by_player[
             (fifties_by_player['batsman_runs'] >= 50) & 
             (fifties_by_player['batsman_runs'] < 100)
-        ].groupby('batter').size().reset_index(name='Fifties').sort_values('Fifties', ascending=False).head(10)
+        ].groupby('batter', as_index=False)
+        .size()
+        .rename(columns={'size': 'Fifties'})
+        .sort_values('Fifties', ascending=False)
+        .head(10))
         st.dataframe(fifties)
         
     with tab2:
@@ -493,26 +518,28 @@ def milestones_page(df):
         
         # Best Bowling Figures
         st.write("### Best Bowling Figures")
-        bowling_figures = df.groupby(['match_id', 'bowler']).agg({
+        bowling_figures = df.groupby(['match_id', 'bowler'], as_index=False).agg({
             'is_wicket': 'sum',
             'total_runs': 'sum'
-        }).reset_index()
+        })
         bowling_figures['figures'] = bowling_figures['is_wicket'].astype(str) + '/' + bowling_figures['total_runs'].astype(str)
         best_bowling = bowling_figures.nlargest(10, 'is_wicket').sort_values(['is_wicket', 'total_runs'], ascending=[False, True])
         st.dataframe(best_bowling[['bowler', 'figures', 'is_wicket', 'total_runs']])
         
         # Most Wickets
         st.write("### Most Wickets")
-        most_wickets = df.groupby('bowler')['is_wicket'].sum().reset_index().sort_values(
-            'is_wicket', ascending=False).head(10)
+        most_wickets = (df.groupby('bowler', as_index=False)['is_wicket']
+                       .sum()
+                       .sort_values('is_wicket', ascending=False)
+                       .head(10))
         st.dataframe(most_wickets)
         
         # Best Economy Rates (min 20 overs)
         st.write("### Best Economy Rates (Min. 20 overs)")
-        bowler_stats = df.groupby('bowler').agg({
+        bowler_stats = df.groupby('bowler', as_index=False).agg({
             'total_runs': 'sum',
             'bowler': 'size'  # balls bowled
-        }).reset_index()
+        })
         bowler_stats['overs'] = bowler_stats['bowler'] / 6
         bowler_stats['economy'] = bowler_stats['total_runs'] / bowler_stats['overs']
         best_economy = bowler_stats[bowler_stats['overs'] >= 20].sort_values('economy').head(10)
@@ -521,8 +548,12 @@ def milestones_page(df):
         # Most 5 Wicket Hauls
         st.write("### Most 5 Wicket Hauls")
         five_wickets = df.groupby(['match_id', 'bowler'])['is_wicket'].sum().reset_index()
-        five_wicket_hauls = five_wickets[five_wickets['is_wicket'] >= 5].groupby('bowler').size().reset_index(
-            name='5W Hauls').sort_values('5W Hauls', ascending=False).head(10)
+        five_wicket_hauls = (five_wickets[five_wickets['is_wicket'] >= 5]
+                           .groupby('bowler', as_index=False)
+                           .size()
+                           .rename(columns={'size': '5W Hauls'})
+                           .sort_values('5W Hauls', ascending=False)
+                           .head(10))
         st.dataframe(five_wicket_hauls)
         
     with tab3:
@@ -530,24 +561,29 @@ def milestones_page(df):
         
         # Highest Team Totals
         st.write("### Highest Team Totals")
-        highest_totals = df.groupby(['match_id', 'batting_team'])['total_runs'].sum().reset_index().sort_values(
-            'total_runs', ascending=False).head(10)
+        highest_totals = (df.groupby(['match_id', 'batting_team'], as_index=False)['total_runs']
+                         .sum()
+                         .sort_values('total_runs', ascending=False)
+                         .head(10))
         st.dataframe(highest_totals)
         
         # Best Team Strike Rates
         st.write("### Best Team Strike Rates")
-        team_stats = df.groupby('batting_team').agg({
+        team_stats = df.groupby('batting_team', as_index=False).agg({
             'total_runs': 'sum',
             'batting_team': 'size'  # balls faced
-        }).reset_index()
+        })
         team_stats['strike_rate'] = (team_stats['total_runs'] / team_stats['batting_team']) * 100
         st.dataframe(team_stats.sort_values('strike_rate', ascending=False))
         
         # Most Team Wins
         st.write("### Most Team Wins")
-        matches_won = df.groupby('batting_team')['match_id'].nunique().reset_index()
-        matches_won.columns = ['Team', 'Matches']
-        st.dataframe(matches_won.sort_values('Matches', ascending=False))
+        matches_won = (df.groupby('batting_team', as_index=False)['match_id']
+                      .nunique()
+                      .rename(columns={'batting_team': 'Team', 'match_id': 'Matches'})
+                      .sort_values('Matches', ascending=False))
+        st.dataframe(matches_won)
+
 
 def display_form_trend(df, player, role):
     if role == 'batsman':

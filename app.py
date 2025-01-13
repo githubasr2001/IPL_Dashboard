@@ -221,129 +221,136 @@ def analyze_bowler(df, player):
 def player_analysis_page(df):
     st.header("Player Analysis 🏃")
     
-    player_type = st.radio("Select Player Type", ["Batsman", "Bowler", "All-Rounder"])
+    # Player type selection
+    player_type = st.radio("Select Player Type", ["Batsman", "Bowler"])
     
     if player_type == "Batsman":
         player = st.selectbox("Select Batsman", sorted(df['batter'].unique()))
         if player:
-            stats = analyze_batsman(df, player)
+            # Get player data
+            player_df = df[df['batter'] == player]
             
-            # Display comprehensive batting stats
+            # Overall Statistics
+            total_runs = player_df['batsman_runs'].sum()
+            balls_faced = len(player_df)
+            strike_rate = (total_runs / balls_faced * 100) if balls_faced > 0 else 0
+            fours = len(player_df[player_df['batsman_runs'] == 4])
+            sixes = len(player_df[player_df['batsman_runs'] == 6])
+            
+            # Display overall stats
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Total Runs", f"{stats['total_runs']:,.0f}")
-                st.metric("Balls Faced", f"{stats['balls_faced']}")
+                st.metric("Total Runs", f"{total_runs:,}")
             with col2:
-                st.metric("Strike Rate", f"{stats['strike_rate']:.2f}")
-                st.metric("Average", f"{stats['average']:.2f}")
+                st.metric("Strike Rate", f"{strike_rate:.2f}")
             with col3:
-                st.metric("Centuries", f"{stats['centuries']}")
-                st.metric("Fifties", f"{stats['fifties']}")
+                st.metric("Fours", f"{fours}")
             with col4:
-                st.metric("Sixes", f"{stats['sixes']}")
-                st.metric("Fours", f"{stats['fours']}")
+                st.metric("Sixes", f"{sixes}")
             
-            # Display phase-wise performance
-            st.subheader("Phase-wise Performance")
-            display_phase_performance(df, player, 'batsman')
-            
-            # Display form analysis
-            st.subheader("Form Analysis")
-            display_form_trend(df, player, 'batsman')
-            
-            # Display opposition analysis
+            # Performance against teams
             st.subheader("Performance Against Teams")
-            display_opposition_analysis(df, player, 'batsman')
+            team_stats = player_df.groupby('bowling_team').agg({
+                'batsman_runs': 'sum',
+                'batter': 'size',  # balls faced
+                'is_wicket': 'sum'  # dismissals
+            }).reset_index()
             
-    elif player_type == "Bowler":
+            team_stats['Strike Rate'] = (team_stats['batsman_runs'] / team_stats['batter'] * 100).round(2)
+            team_stats['Average'] = (team_stats['batsman_runs'] / team_stats['is_wicket'].replace(0, 1)).round(2)
+            
+            # Create bar chart for runs against teams
+            fig1 = px.bar(team_stats, 
+                         x='bowling_team', 
+                         y='batsman_runs',
+                         title=f"{player}'s Runs Against Different Teams",
+                         labels={'bowling_team': 'Team', 'batsman_runs': 'Runs'})
+            st.plotly_chart(fig1, use_container_width=True)
+            
+            # Create scatter plot for Strike Rate vs Average against teams
+            fig2 = px.scatter(team_stats,
+                            x='Strike Rate',
+                            y='Average',
+                            size='batsman_runs',
+                            hover_data=['bowling_team'],
+                            title=f"{player}'s Performance Metrics Against Teams")
+            st.plotly_chart(fig2, use_container_width=True)
+            
+            # Detailed stats table
+            st.subheader("Detailed Statistics by Team")
+            detailed_stats = team_stats.rename(columns={
+                'bowling_team': 'Team',
+                'batsman_runs': 'Runs',
+                'batter': 'Balls Faced',
+                'is_wicket': 'Dismissals'
+            })
+            st.dataframe(detailed_stats, use_container_width=True)
+            
+    else:  # Bowler analysis
         player = st.selectbox("Select Bowler", sorted(df['bowler'].unique()))
         if player:
-            stats = analyze_bowler(df, player)
+            # Get player data
+            player_df = df[df['bowler'] == player]
             
-            # Display comprehensive bowling stats
+            # Overall Statistics
+            total_wickets = player_df['is_wicket'].sum()
+            balls_bowled = len(player_df)
+            overs = balls_bowled / 6
+            runs_conceded = player_df['total_runs'].sum()
+            economy = (runs_conceded / overs) if overs > 0 else 0
+            
+            # Display overall stats
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Wickets", f"{stats['wickets']}")
-                st.metric("Best Bowling", stats['best_bowling'])
+                st.metric("Total Wickets", f"{total_wickets}")
             with col2:
-                st.metric("Economy", f"{stats['economy']:.2f}")
-                st.metric("Average", f"{stats['average']:.2f}")
+                st.metric("Overs Bowled", f"{overs:.1f}")
             with col3:
-                st.metric("3-Wicket Hauls", f"{stats['three_wicket_hauls']}")
-                st.metric("Overs Bowled", f"{stats['overs_bowled']:.1f}")
+                st.metric("Runs Conceded", f"{runs_conceded}")
             with col4:
-                st.metric("Runs Conceded", f"{stats['runs_conceded']}")
+                st.metric("Economy", f"{economy:.2f}")
             
-            # Display phase-wise performance
-            st.subheader("Phase-wise Performance")
-            display_phase_performance(df, player, 'bowler')
-            
-            # Display form analysis
-            st.subheader("Form Analysis")
-            display_form_trend(df, player, 'bowler')
-            
-            # Display opposition analysis
+            # Performance against teams
             st.subheader("Performance Against Teams")
-            display_opposition_analysis(df, player, 'bowler')
+            team_stats = player_df.groupby('batting_team').agg({
+                'is_wicket': 'sum',
+                'total_runs': 'sum',
+                'bowler': 'size'  # balls bowled
+            }).reset_index()
             
-    else:  # All-Rounder
-        player = st.selectbox("Select All-Rounder", 
-                            sorted(set(df['batter'].unique()) & set(df['bowler'].unique())))
-        if player:
-            batting_stats = analyze_batsman(df, player)
-            bowling_stats = analyze_bowler(df, player)
+            team_stats['Overs'] = (team_stats['bowler'] / 6).round(1)
+            team_stats['Economy'] = (team_stats['total_runs'] / team_stats['Overs']).round(2)
             
-            st.subheader("Batting Statistics")
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Runs", f"{batting_stats['total_runs']:,.0f}")
-                st.metric("Balls Faced", f"{batting_stats['balls_faced']}")
-            with col2:
-                st.metric("Strike Rate", f"{batting_stats['strike_rate']:.2f}")
-                st.metric("Average", f"{batting_stats['average']:.2f}")
-            with col3:
-                st.metric("Centuries", f"{batting_stats['centuries']}")
-                st.metric("Fifties", f"{batting_stats['fifties']}")
-            with col4:
-                st.metric("Sixes", f"{batting_stats['sixes']}")
-                st.metric("Fours", f"{batting_stats['fours']}")
+            # Create bar chart for wickets against teams
+            fig1 = px.bar(team_stats,
+                         x='batting_team',
+                         y='is_wicket',
+                         title=f"{player}'s Wickets Against Different Teams",
+                         labels={'batting_team': 'Team', 'is_wicket': 'Wickets'})
+            st.plotly_chart(fig1, use_container_width=True)
             
-            st.subheader("Bowling Statistics")
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Wickets", f"{bowling_stats['wickets']}")
-                st.metric("Best Bowling", bowling_stats['best_bowling'])
-            with col2:
-                st.metric("Economy", f"{bowling_stats['economy']:.2f}")
-                st.metric("Average", f"{bowling_stats['average']:.2f}")
-            with col3:
-                st.metric("3-Wicket Hauls", f"{bowling_stats['three_wicket_hauls']}")
-                st.metric("Overs Bowled", f"{bowling_stats['overs_bowled']:.1f}")
-            with col4:
-                st.metric("Runs Conceded", f"{bowling_stats['runs_conceded']}")
+            # Create scatter plot for Economy vs Wickets against teams
+            fig2 = px.scatter(team_stats,
+                            x='Economy',
+                            y='is_wicket',
+                            size='Overs',
+                            hover_data=['batting_team'],
+                            title=f"{player}'s Performance Metrics Against Teams")
+            st.plotly_chart(fig2, use_container_width=True)
             
-            # Phase-wise Analysis for Both Skills
-            st.subheader("Phase-wise Batting Performance")
-            display_phase_performance(df, player, 'batsman')
-            
-            st.subheader("Phase-wise Bowling Performance")
-            display_phase_performance(df, player, 'bowler')
-            
-            # Form Analysis for Both Skills
-            col1, col2 = st.columns(2)
-            with col1:
-                st.subheader("Batting Form")
-                display_form_trend(df, player, 'batsman')
-            with col2:
-                st.subheader("Bowling Form")
-                display_form_trend(df, player, 'bowler')
-            
-            # Opposition Analysis for Both Skills
-            st.subheader("Performance Against Teams (Batting)")
-            display_opposition_analysis(df, player, 'batsman')
-            
-            st.subheader("Performance Against Teams (Bowling)")
-            display_opposition_analysis(df, player, 'bowler')
+            # Detailed stats table
+            st.subheader("Detailed Statistics by Team")
+            detailed_stats = team_stats.rename(columns={
+                'batting_team': 'Team',
+                'is_wicket': 'Wickets',
+                'total_runs': 'Runs Conceded',
+                'bowler': 'Balls Bowled'
+            })
+            st.dataframe(detailed_stats, use_container_width=True)
+               
+        
+       
+
 
 def display_opposition_analysis(df, player, role):
     if role == 'batsman':

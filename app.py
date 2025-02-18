@@ -15,36 +15,68 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better design
+# Custom CSS: adapts to light/dark mode for a better look
 st.markdown("""
 <style>
-    .main {
-        background-color: #f5f5f5;
+:root {
+    --primary-bg: #f8f9fa;
+    --secondary-bg: #ffffff;
+    --text-color: #2c3e50;
+    --accent-color: #007bff;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+         --primary-bg: #2c3e50;
+         --secondary-bg: #1e1e1e;
+         --text-color: #ecf0f1;
+         --accent-color: #66b2ff;
     }
-    .stApp {
-        background: linear-gradient(to right, #f8f9fa, #e9ecef);
-    }
-    .css-1d391kg {
-        background-color: #1e1e1e;
-    }
-    .st-emotion-cache-1wivap2 {
-        font-size: 1.2rem;
-        font-weight: bold;
-        color: #2c3e50;
-    }
-    .metric-card {
-        background-color: white;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
-    }
-    .chart-container {
-        background-color: white;
-        border-radius: 10px;
-        padding: 20px;
-        margin: 10px 0;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
-    }
+}
+
+body {
+    background-color: var(--primary-bg) !important;
+    color: var(--text-color) !important;
+}
+
+[data-testid="stSidebar"] {
+    background-color: var(--secondary-bg) !important;
+    color: var(--text-color) !important;
+}
+
+.css-1d391kg {
+    background-color: var(--secondary-bg) !important;
+}
+
+.st-emotion-cache-1wivap2 {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: var(--text-color) !important;
+}
+
+.metric-card {
+    background-color: var(--secondary-bg) !important;
+    border-radius: 10px;
+    padding: 15px;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+}
+
+.chart-container {
+    background-color: var(--secondary-bg) !important;
+    border-radius: 10px;
+    padding: 20px;
+    margin: 10px 0;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+}
+
+.stButton>button {
+    background-color: var(--accent-color);
+    color: var(--secondary-bg);
+    border: none;
+    border-radius: 5px;
+    padding: 0.5em 1em;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -78,14 +110,14 @@ def head_to_head_page(df):
     with col2:
         team2 = st.selectbox("Select Team 2", sorted(df['bowling_team'].unique()))
         
-    if team1 and team2:
-        # Filter matches between selected teams
+    if team1 and team2 and team1 != team2:
+        # Filter ball-by-ball records for matches between selected teams
         team_vs_team = df[
             ((df['batting_team'] == team1) & (df['bowling_team'] == team2)) |
             ((df['batting_team'] == team2) & (df['bowling_team'] == team1))
         ]
         
-        # Calculate detailed metrics
+        # Calculate detailed metrics for each team's batting innings in these head-to-head encounters.
         team1_stats = team_vs_team[team_vs_team['batting_team'] == team1]
         team2_stats = team_vs_team[team_vs_team['batting_team'] == team2]
         
@@ -98,6 +130,7 @@ def head_to_head_page(df):
         team1_runs_conceded = team2_stats['total_runs'].sum()
         team1_overs_bowled = len(team2_stats) / 6
         team1_economy = team1_runs_conceded / team1_overs_bowled if team1_overs_bowled > 0 else 0
+        team1_highest = team1_stats.groupby('match_id')['total_runs'].sum().max() or 0
         
         # Team 2 Metrics
         team2_runs = team2_stats['total_runs'].sum()
@@ -108,30 +141,59 @@ def head_to_head_page(df):
         team2_runs_conceded = team1_stats['total_runs'].sum()
         team2_overs_bowled = len(team1_stats) / 6
         team2_economy = team2_runs_conceded / team2_overs_bowled if team2_overs_bowled > 0 else 0
+        team2_highest = team2_stats.groupby('match_id')['total_runs'].sum().max() or 0
         
-        # Display metrics
+        # Display batting and bowling metrics
+        st.subheader("Individual Innings Statistics")
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader(f"{team1} Statistics")
+            st.markdown(f"### {team1} Statistics")
             st.metric("Total Runs", f"{team1_runs:,.0f}")
             st.metric("Run Rate", f"{team1_rr:.2f}")
             st.metric("Wickets Taken", f"{team1_wickets}")
             st.metric("Economy Rate", f"{team1_economy:.2f}")
             st.metric("Overs Bowled", f"{team1_overs_bowled:.1f}")
             st.metric("Runs Conceded", f"{team1_runs_conceded:,.0f}")
-            
+            st.metric("Highest Innings Score", f"{team1_highest:,.0f}")
         with col2:
-            st.subheader(f"{team2} Statistics")
+            st.markdown(f"### {team2} Statistics")
             st.metric("Total Runs", f"{team2_runs:,.0f}")
             st.metric("Run Rate", f"{team2_rr:.2f}")
             st.metric("Wickets Taken", f"{team2_wickets}")
             st.metric("Economy Rate", f"{team2_economy:.2f}")
             st.metric("Overs Bowled", f"{team2_overs_bowled:.1f}")
             st.metric("Runs Conceded", f"{team2_runs_conceded:,.0f}")
-            
-        # Phase-wise Analysis
-        st.subheader("Phase-wise Analysis")
+            st.metric("Highest Innings Score", f"{team2_highest:,.0f}")
         
+        # Calculate match-level results for head-to-head encounters.
+        # We group by match_id and only consider matches that involve exactly these two teams.
+        match_summary = (
+            df[df['batting_team'].isin([team1, team2])]
+            .groupby(['match_id', 'batting_team'])['total_runs']
+            .sum()
+            .reset_index()
+        )
+        match_pivot = match_summary.pivot(index='match_id', columns='batting_team', values='total_runs')
+        # Only consider matches where both teams played
+        match_pivot = match_pivot.dropna()
+        matches_played = len(match_pivot)
+        team1_wins = (match_pivot[team1] > match_pivot[team2]).sum()
+        team2_wins = (match_pivot[team2] > match_pivot[team1]).sum()
+        ties = (match_pivot[team1] == match_pivot[team2]).sum()
+        
+        st.subheader("Match Results")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Matches Played", f"{matches_played}")
+        with col2:
+            st.metric(f"{team1} Wins", f"{team1_wins}")
+        with col3:
+            st.metric(f"{team2} Wins", f"{team2_wins}")
+        with col4:
+            st.metric("Tied Matches", f"{ties}")
+        
+        # Phase-wise Analysis (Powerplay, Middle, Death)
+        st.subheader("Phase-wise Analysis")
         def get_phase_stats(team_data, phase_start, phase_end):
             phase_df = team_data[
                 (team_data['over'] >= phase_start) & 
@@ -152,7 +214,7 @@ def head_to_head_page(df):
         ]
         
         for phase_name, start, end in phases:
-            st.write(f"\n{phase_name}")
+            st.write(f"**{phase_name}**")
             t1_runs, t1_rr, t1_wickets, t1_eco = get_phase_stats(team1_stats, start, end)
             t2_runs, t2_rr, t2_wickets, t2_eco = get_phase_stats(team2_stats, start, end)
             
@@ -167,6 +229,8 @@ def head_to_head_page(df):
                 st.metric("Run Rate", f"{t2_rr:.2f}")
                 st.metric("Wickets", f"{t2_wickets}")
                 st.metric("Economy", f"{t2_eco:.2f}")
+    elif team1 == team2:
+        st.error("Please select two different teams for head-to-head analysis.")
 
 def analyze_batsman(df, player):
     player_df = df[df['batter'] == player]
@@ -347,10 +411,6 @@ def player_analysis_page(df):
                 'bowler': 'Balls Bowled'
             })
             st.dataframe(detailed_stats, use_container_width=True)
-               
-        
-       
-
 
 def display_opposition_analysis(df, player, role):
     if role == 'batsman':
@@ -442,15 +502,12 @@ def display_phase_performance(df, player, role):
                 st.metric("Runs Conceded", f"{runs}")
             with col4:
                 st.metric("Economy", f"{economy:.2f}")
-
-
-        
-        
-        st.write("### Most 5 Wicket Hauls")
-        five_wickets = df.groupby(['match_id', 'bowler'])['is_wicket'].sum().reset_index()
-        five_wicket_hauls = five_wickets[five_wickets['is_wicket'] >= 5].groupby('bowler').size().reset_index(
-            name='5W Hauls').sort_values('5W Hauls', ascending=False).head(10)
-        st.dataframe(five_wicket_hauls)
+    
+    st.write("### Most 5 Wicket Hauls")
+    five_wickets = df.groupby(['match_id', 'bowler'])['is_wicket'].sum().reset_index()
+    five_wicket_hauls = five_wickets[five_wickets['is_wicket'] >= 5].groupby('bowler').size().reset_index(
+        name='5W Hauls').sort_values('5W Hauls', ascending=False).head(10)
+    st.dataframe(five_wicket_hauls)
         
 def milestones_page(df):
     st.header("Milestones & Records 🏆")
@@ -584,7 +641,6 @@ def milestones_page(df):
                       .rename(columns={'batting_team': 'Team', 'match_id': 'Matches'})
                       .sort_values('Matches', ascending=False))
         st.dataframe(matches_won)
-
 
 def display_form_trend(df, player, role):
     if role == 'batsman':

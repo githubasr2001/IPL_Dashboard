@@ -75,7 +75,6 @@ def load_data():
         with zipfile.ZipFile('deliveries.csv.zip') as z:
             with z.open('deliveries.csv') as file:
                 df = pd.read_csv(file)
-        
         # Updated team name mapping
         team_mapping = {
             'Rising Pune Supergiants': 'Rising Pune Supergiant',
@@ -92,67 +91,19 @@ def load_data():
 def head_to_head_page(df):
     st.header("Head to Head Analysis 🤝")
     
+    # Use the batting team names for both selectors for consistency.
     col1, col2 = st.columns(2)
     with col1:
         team1 = st.selectbox("Select Team 1", sorted(df['batting_team'].unique()))
     with col2:
-        team2 = st.selectbox("Select Team 2", sorted(df['bowling_team'].unique()))
+        team2 = st.selectbox("Select Team 2", sorted(df['batting_team'].unique()))
         
     if team1 and team2:
         if team1 == team2:
             st.error("Please select two different teams for head-to-head analysis.")
             return
-        
-        # Filter ball-by-ball records for matches between the two teams
-        team_vs_team = df[
-            ((df['batting_team'] == team1) & (df['bowling_team'] == team2)) |
-            ((df['batting_team'] == team2) & (df['bowling_team'] == team1))
-        ]
-        
-        # Detailed ball-by-ball metrics (each team's innings in head-to-head matches)
-        team1_stats = team_vs_team[team_vs_team['batting_team'] == team1]
-        team2_stats = team_vs_team[team_vs_team['batting_team'] == team2]
-        
-        # Compute metrics for each team
-        team1_runs = team1_stats['total_runs'].sum()
-        team1_balls = len(team1_stats)
-        team1_overs = team1_balls / 6
-        team1_rr = team1_runs / team1_overs if team1_overs > 0 else 0
-        team1_wickets = team_vs_team[team_vs_team['bowling_team'] == team1]['is_wicket'].sum()
-        team1_runs_conceded = team2_stats['total_runs'].sum()
-        team1_overs_bowled = len(team2_stats) / 6
-        team1_economy = team1_runs_conceded / team1_overs_bowled if team1_overs_bowled > 0 else 0
-        
-        team2_runs = team2_stats['total_runs'].sum()
-        team2_balls = len(team2_stats)
-        team2_overs = team2_balls / 6
-        team2_rr = team2_runs / team2_overs if team2_overs > 0 else 0
-        team2_wickets = team_vs_team[team_vs_team['bowling_team'] == team2]['is_wicket'].sum()
-        team2_runs_conceded = team1_stats['total_runs'].sum()
-        team2_overs_bowled = len(team1_stats) / 6
-        team2_economy = team2_runs_conceded / team2_overs_bowled if team2_overs_bowled > 0 else 0
-        
-        # Display aggregated metrics (individual innings score metric removed)
-        st.subheader("Aggregated Innings Statistics")
-        colA, colB = st.columns(2)
-        with colA:
-            st.markdown(f"### {team1} Statistics")
-            st.metric("Total Runs", f"{team1_runs:,.0f}")
-            st.metric("Run Rate", f"{team1_rr:.2f}")
-            st.metric("Wickets Taken", f"{team1_wickets}")
-            st.metric("Economy Rate", f"{team1_economy:.2f}")
-            st.metric("Overs Bowled", f"{team1_overs_bowled:.1f}")
-            st.metric("Runs Conceded", f"{team1_runs_conceded:,.0f}")
-        with colB:
-            st.markdown(f"### {team2} Statistics")
-            st.metric("Total Runs", f"{team2_runs:,.0f}")
-            st.metric("Run Rate", f"{team2_rr:.2f}")
-            st.metric("Wickets Taken", f"{team2_wickets}")
-            st.metric("Economy Rate", f"{team2_economy:.2f}")
-            st.metric("Overs Bowled", f"{team2_overs_bowled:.1f}")
-            st.metric("Runs Conceded", f"{team2_runs_conceded:,.0f}")
-        
-        # Compute match-level results (only matches where both teams batted)
+
+        # Compute match-level aggregates for matches where both teams batted.
         match_summary = (
             df[df['batting_team'].isin([team1, team2])]
             .groupby(['match_id', 'batting_team'])['total_runs']
@@ -160,33 +111,57 @@ def head_to_head_page(df):
             .reset_index()
         )
         match_pivot = match_summary.pivot(index='match_id', columns='batting_team', values='total_runs')
-        match_pivot = match_pivot.dropna()  # only matches where both teams batted
+        match_pivot = match_pivot.dropna()  # only consider matches where both teams batted
         
         matches_played = len(match_pivot)
         team1_wins = (match_pivot[team1] > match_pivot[team2]).sum()
         team2_wins = (match_pivot[team2] > match_pivot[team1]).sum()
         ties = (match_pivot[team1] == match_pivot[team2]).sum()
         
-        st.subheader("Match Results")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Matches Played", f"{matches_played}")
-        with col2:
-            st.metric(f"{team1} Wins", f"{team1_wins}")
-        with col3:
-            st.metric(f"{team2} Wins", f"{team2_wins}")
-        with col4:
-            st.metric("Tied Matches", f"{ties}")
+        team1_total_runs = match_pivot[team1].sum()
+        team2_total_runs = match_pivot[team2].sum()
         
-        # Phase-wise Analysis (Powerplay, Middle, Death)
+        # Display match-level results.
+        colA, colB, colC, colD, colE, colF = st.columns(6)
+        with colA:
+            st.metric("Matches Played", f"{matches_played}")
+        with colB:
+            st.metric(f"{team1} Wins", f"{team1_wins}")
+        with colC:
+            st.metric(f"{team2} Wins", f"{team2_wins}")
+        with colD:
+            st.metric("Tied Matches", f"{ties}")
+        with colE:
+            st.metric(f"{team1} Total Runs", f"{team1_total_runs}")
+        with colF:
+            st.metric(f"{team2} Total Runs", f"{team2_total_runs}")
+        
+        # For phase-wise analysis, filter the ball-by-ball head-to-head data.
+        head_to_head_data = df[
+            ((df['batting_team'] == team1) & (df['bowling_team'] == team2)) |
+            ((df['batting_team'] == team2) & (df['bowling_team'] == team1))
+        ]
+        
         st.subheader("Phase-wise Analysis")
-        def get_phase_stats(team_data, phase_start, phase_end):
-            phase_df = team_data[(team_data['over'] >= phase_start) & (team_data['over'] <= phase_end)]
-            runs = phase_df['total_runs'].sum()
-            balls = len(phase_df)
+        def get_phase_stats(team, phase_start, phase_end):
+            # Get batting stats for this team in the specified phase.
+            phase_batting = head_to_head_data[
+                (head_to_head_data['over'] >= phase_start) &
+                (head_to_head_data['over'] <= phase_end) &
+                (head_to_head_data['batting_team'] == team)
+            ]
+            runs = phase_batting['total_runs'].sum()
+            balls = len(phase_batting)
             overs = balls / 6
             rr = runs / overs if overs > 0 else 0
-            wickets = phase_df['is_wicket'].sum()
+            # Get wickets taken by the team while bowling in that phase.
+            phase_bowling = head_to_head_data[
+                (head_to_head_data['over'] >= phase_start) &
+                (head_to_head_data['over'] <= phase_end) &
+                (head_to_head_data['bowling_team'] == team)
+            ]
+            wickets = phase_bowling['is_wicket'].sum()
+            # Economy is computed for the batting innings (runs per over).
             economy = runs / overs if overs > 0 else 0
             return runs, rr, wickets, economy
         
@@ -197,20 +172,19 @@ def head_to_head_page(df):
         ]
         for phase_name, start, end in phases:
             st.write(f"**{phase_name}**")
-            t1_runs, t1_rr, t1_wickets, t1_eco = get_phase_stats(team1_stats, start, end)
-            t2_runs, t2_rr, t2_wickets, t2_eco = get_phase_stats(team2_stats, start, end)
-            
-            colX, colY = st.columns(2)
-            with colX:
+            t1_runs, t1_rr, t1_wickets, t1_econ = get_phase_stats(team1, start, end)
+            t2_runs, t2_rr, t2_wickets, t2_econ = get_phase_stats(team2, start, end)
+            col1_phase, col2_phase = st.columns(2)
+            with col1_phase:
                 st.metric(f"{team1} Runs", f"{t1_runs:.0f}")
                 st.metric("Run Rate", f"{t1_rr:.2f}")
-                st.metric("Wickets", f"{t1_wickets}")
-                st.metric("Economy", f"{t1_eco:.2f}")
-            with colY:
+                st.metric("Wickets Taken", f"{t1_wickets}")
+                st.metric("Economy", f"{t1_econ:.2f}")
+            with col2_phase:
                 st.metric(f"{team2} Runs", f"{t2_runs:.0f}")
                 st.metric("Run Rate", f"{t2_rr:.2f}")
-                st.metric("Wickets", f"{t2_wickets}")
-                st.metric("Economy", f"{t2_eco:.2f}")
+                st.metric("Wickets Taken", f"{t2_wickets}")
+                st.metric("Economy", f"{t2_econ:.2f}")
     else:
         st.info("Please select two teams.")
 
@@ -319,7 +293,7 @@ def player_analysis_page(df):
             })
             st.dataframe(detailed_stats, use_container_width=True)
             
-    else:  # Bowler analysis
+    else:
         player = st.selectbox("Select Bowler", sorted(df['bowler'].unique()))
         if player:
             player_df = df[df['bowler'] == player]

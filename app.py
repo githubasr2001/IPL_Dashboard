@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS with dark/light mode support (removed problematic CSS block)
+# Custom CSS with dark/light mode support
 st.markdown(
     """
     <style>
@@ -109,11 +109,11 @@ def head_to_head_page(df):
             ((df['batting_team'] == team2) & (df['bowling_team'] == team1))
         ]
         
-        # Detailed ball-by-ball metrics (each team's innings)
+        # Detailed ball-by-ball metrics (each team's innings in head-to-head matches)
         team1_stats = team_vs_team[team_vs_team['batting_team'] == team1]
         team2_stats = team_vs_team[team_vs_team['batting_team'] == team2]
         
-        # Team 1 Metrics
+        # Compute metrics for each team
         team1_runs = team1_stats['total_runs'].sum()
         team1_balls = len(team1_stats)
         team1_overs = team1_balls / 6
@@ -122,9 +122,7 @@ def head_to_head_page(df):
         team1_runs_conceded = team2_stats['total_runs'].sum()
         team1_overs_bowled = len(team2_stats) / 6
         team1_economy = team1_runs_conceded / team1_overs_bowled if team1_overs_bowled > 0 else 0
-        team1_highest = team1_stats.groupby('match_id')['total_runs'].sum().max() or 0
         
-        # Team 2 Metrics
         team2_runs = team2_stats['total_runs'].sum()
         team2_balls = len(team2_stats)
         team2_overs = team2_balls / 6
@@ -133,10 +131,9 @@ def head_to_head_page(df):
         team2_runs_conceded = team1_stats['total_runs'].sum()
         team2_overs_bowled = len(team1_stats) / 6
         team2_economy = team2_runs_conceded / team2_overs_bowled if team2_overs_bowled > 0 else 0
-        team2_highest = team2_stats.groupby('match_id')['total_runs'].sum().max() or 0
         
-        # Display individual innings statistics
-        st.subheader("Individual Innings Statistics")
+        # Display aggregated metrics (individual innings score metric removed)
+        st.subheader("Aggregated Innings Statistics")
         colA, colB = st.columns(2)
         with colA:
             st.markdown(f"### {team1} Statistics")
@@ -146,7 +143,6 @@ def head_to_head_page(df):
             st.metric("Economy Rate", f"{team1_economy:.2f}")
             st.metric("Overs Bowled", f"{team1_overs_bowled:.1f}")
             st.metric("Runs Conceded", f"{team1_runs_conceded:,.0f}")
-            st.metric("Highest Innings Score", f"{team1_highest:,.0f}")
         with colB:
             st.markdown(f"### {team2} Statistics")
             st.metric("Total Runs", f"{team2_runs:,.0f}")
@@ -155,9 +151,8 @@ def head_to_head_page(df):
             st.metric("Economy Rate", f"{team2_economy:.2f}")
             st.metric("Overs Bowled", f"{team2_overs_bowled:.1f}")
             st.metric("Runs Conceded", f"{team2_runs_conceded:,.0f}")
-            st.metric("Highest Innings Score", f"{team2_highest:,.0f}")
         
-        # Compute match-level results (only consider matches where both teams played)
+        # Compute match-level results (only matches where both teams batted)
         match_summary = (
             df[df['batting_team'].isin([team1, team2])]
             .groupby(['match_id', 'batting_team'])['total_runs']
